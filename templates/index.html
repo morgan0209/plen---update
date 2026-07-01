@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Catatan Real-Time Kita</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f6f9;
+            padding: 15px;
+            color: #333;
+            padding-bottom: 60px;
+        }
+        h1 { text-align: center; margin-bottom: 20px; font-size: 24px; color: #2c3e50; }
+
+        /* ===== Bar pencarian & filter ===== */
+        .search-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+        #searchInput, #filterKategori {
+            padding: 10px 12px;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            font-size: 14px;
+            background: #fff;
+        }
+        #searchInput {
+            flex: 1 1 220px;
+        }
+        #searchInput:focus, #filterKategori:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+        #btnTambahKategori {
+            flex: 0 0 auto;
+            background: #3498db;
+            color: #fff;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        #btnTambahKategori:hover { background: #2980b9; }
+
+        /* ===== Filter A-Z ===== */
+        .az-filter {
+            display: flex;
+            gap: 6px;
+            overflow-x: auto;
+            padding-bottom: 8px;
+            margin-bottom: 16px;
+        }
+        .az-btn {
+            flex: 0 0 auto;
+            border: 1px solid #cbd5e1;
+            background: #fff;
+            color: #34495e;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            font-size: 13px;
+            cursor: pointer;
+        }
+        .az-btn:first-child { width: auto; border-radius: 16px; padding: 0 12px; }
+        .az-btn.aktif { background: #3498db; border-color: #3498db; color: #fff; }
+        .az-btn:hover:not(.aktif) { border-color: #3498db; color: #3498db; }
+
+        /* ===== Grid kategori ===== */
+        .container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 15px;
+        }
+
+        .kategori {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            transition: box-shadow 0.3s, border-color 0.3s;
+        }
+        .kategori.highlight {
+            border-color: #3498db;
+            box-shadow: 0 0 0 3px rgba(52,152,219,0.35);
+        }
+        .kategori-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .kategori h3 {
+            font-size: 16px;
+            color: #34495e;
+            border-left: 4px solid #3498db;
+            padding-left: 8px;
+        }
+        .btn-hapus-kategori {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            opacity: 0.45;
+            padding: 4px;
+            line-height: 1;
+        }
+        .btn-hapus-kategori:hover { opacity: 1; }
+        textarea {
+            width: 100%;
+            height: 120px;
+            padding: 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            resize: none;
+            font-size: 14px;
+            line-height: 1.4;
+            font-family: inherit;
+        }
+        textarea:focus {
+            outline: none;
+            border-color: #3498db;
+        }
+
+        /* ===== Panel hasil pencarian ===== */
+        .hasil-pencarian {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            overflow: hidden;
+        }
+        .hasil-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 15px;
+            background: #eaf4fc;
+            font-size: 13px;
+            color: #2c3e50;
+            font-weight: 600;
+        }
+        #btnTutupHasil {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 13px;
+            color: #34495e;
+        }
+        .hasil-item {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            padding: 10px 15px;
+            border-top: 1px solid #f0f2f5;
+            cursor: pointer;
+        }
+        .hasil-item:hover { background: #f8fafc; }
+        .hasil-badge {
+            flex: 0 0 auto;
+            background: #eaf4fc;
+            color: #2980b9;
+            font-size: 12px;
+            padding: 3px 8px;
+            border-radius: 12px;
+            white-space: nowrap;
+        }
+        .hasil-teks {
+            font-size: 14px;
+            color: #333;
+            word-break: break-word;
+        }
+        .hasil-kosong {
+            padding: 20px 15px;
+            text-align: center;
+            color: #94a3b8;
+            font-size: 14px;
+        }
+
+        /* ===== Modal tambah kategori ===== */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.4);
+            align-items: center;
+            justify-content: center;
+            padding: 15px;
+            z-index: 10;
+        }
+        .modal-overlay.tampil { display: flex; }
+        .modal-box {
+            background: #fff;
+            border-radius: 12px;
+            padding: 20px;
+            width: 100%;
+            max-width: 320px;
+        }
+        .modal-box h2 { font-size: 17px; color: #2c3e50; margin-bottom: 14px; }
+        .modal-box label { display: block; font-size: 12px; color: #64748b; margin-bottom: 4px; margin-top: 10px; }
+        .modal-box input {
+            width: 100%;
+            padding: 9px 10px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        .modal-box input:focus { outline: none; border-color: #3498db; }
+        .modal-tombol {
+            display: flex;
+            gap: 8px;
+            margin-top: 18px;
+        }
+        .modal-tombol button {
+            flex: 1;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            border: none;
+        }
+        .btn-batal { background: #f1f5f9; color: #334155; }
+        .btn-simpan { background: #3498db; color: #fff; }
+
+        @media (max-width: 480px) {
+            .search-bar { flex-direction: column; }
+            #btnTambahKategori { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <h1>📝 Catatan Real-Time</h1>
+
+    <div class="search-bar">
+        <input type="text" id="searchInput" placeholder="🔍 Cari catatan...">
+        <select id="filterKategori">
+            <option value="semua">Semua Kategori</option>
+            {% for kat in kategori_list %}
+            <option value="{{ kat.id }}">{{ kat.ikon }} {{ kat.nama }}</option>
+            {% endfor %}
+        </select>
+        <button id="btnTambahKategori">+ Kategori</button>
+    </div>
+
+    <div class="az-filter" id="azFilter">
+        <button class="az-btn aktif" data-huruf="">Semua</button>
+        {% for huruf in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' %}
+        <button class="az-btn" data-huruf="{{ huruf }}">{{ huruf }}</button>
+        {% endfor %}
+    </div>
+
+    <div class="hasil-pencarian" id="hasilPencarian" style="display:none;">
+        <div class="hasil-header">
+            <span id="jumlahHasil"></span>
+            <button id="btnTutupHasil">✕ Tutup</button>
+        </div>
+        <div id="daftarHasil"></div>
+    </div>
+
+    <div class="container" id="containerKategori">
+        {% for kat in kategori_list %}
+        <div class="kategori" id="card-{{ kat.id }}" data-id="{{ kat.id }}">
+            <div class="kategori-header">
+                <h3>{{ kat.ikon }} {{ kat.nama }}</h3>
+                <button class="btn-hapus-kategori" onclick="hapusKategori('{{ kat.id }}')" title="Hapus kategori">🗑️</button>
+            </div>
+            <textarea id="{{ kat.id }}" onkeyup="kirimUpdate('{{ kat.id }}')">{{ notes[kat.id] }}</textarea>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="modal-overlay" id="modalTambah">
+        <div class="modal-box">
+            <h2>Tambah Kategori Baru</h2>
+            <label for="inputNamaKategori">Nama kategori</label>
+            <input type="text" id="inputNamaKategori" placeholder="misal: Resto Jepang" maxlength="60">
+            <label for="inputIkonKategori">Ikon (emoji, opsional)</label>
+            <input type="text" id="inputIkonKategori" placeholder="📁" maxlength="8">
+            <div class="modal-tombol">
+                <button class="btn-batal" id="btnBatalTambah">Batal</button>
+                <button class="btn-simpan" id="btnSimpanTambah">Tambah</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+
+        // Data catatan & kategori disimpan di memori supaya pencarian tidak perlu tanya server tiap kali
+        let dataKonten = {{ notes|tojson }};
+        let dataKategori = {{ kategori_list|tojson }};
+
+        // ===== Sinkron isi catatan real-time =====
+        function kirimUpdate(kategori_id) {
+            const kontenText = document.getElementById(kategori_id).value;
+            dataKonten[kategori_id] = kontenText;
+            socket.emit('edit_kategori', { kategori: kategori_id, konten: kontenText });
+            if (pencarianAktif()) jalankanPencarian();
+        }
+
+        socket.on('update_layar', function(data) {
+            const ta = document.getElementById(data.kategori);
+            if (ta) ta.value = data.konten;
+            dataKonten[data.kategori] = data.konten;
+            if (pencarianAktif()) jalankanPencarian();
+        });
+
+        // ===== Escape teks bebas dari user sebelum dimasukkan lewat innerHTML =====
+        function escapeHtml(teks) {
+            const div = document.createElement('div');
+            div.textContent = teks;
+            return div.innerHTML;
+        }
+
+        // ===== Tambah kategori =====
+        const modalTambah = document.getElementById('modalTambah');
+        document.getElementById('btnTambahKategori').addEventListener('click', () => {
+            modalTambah.classList.add('tampil');
+            document.getElementById('inputNamaKategori').focus();
+        });
+        document.getElementById('btnBatalTambah').addEventListener('click', tutupModalTambah);
+        modalTambah.addEventListener('click', (e) => { if (e.target === modalTambah) tutupModalTambah(); });
+
+        function tutupModalTambah() {
+            modalTambah.classList.remove('tampil');
+            document.getElementById('inputNamaKategori').value = '';
+            document.getElementById('inputIkonKategori').value = '';
+        }
+
+        document.getElementById('btnSimpanTambah').addEventListener('click', submitTambahKategori);
+        document.getElementById('inputNamaKategori').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') submitTambahKategori();
+        });
+
+        function submitTambahKategori() {
+            const nama = document.getElementById('inputNamaKategori').value.trim();
+            const ikon = document.getElementById('inputIkonKategori').value.trim() || '📁';
+            if (!nama) return;
+            socket.emit('tambah_kategori', { nama, ikon });
+            tutupModalTambah();
+        }
+
+        socket.on('kategori_ditambahkan', function(kat) {
+            if (dataKategori.find(k => k.id === kat.id)) return;
+            dataKategori.push(kat);
+            dataKonten[kat.id] = '';
+            tambahKartuKeDOM(kat);
+            tambahOpsiDropdown(kat);
+        });
+
+        function tambahKartuKeDOM(kat) {
+            const kartu = document.createElement('div');
+            kartu.className = 'kategori';
+            kartu.id = 'card-' + kat.id;
+            kartu.dataset.id = kat.id;
+
+            const header = document.createElement('div');
+            header.className = 'kategori-header';
+
+            const judul = document.createElement('h3');
+            judul.textContent = kat.ikon + ' ' + kat.nama;
+
+            const btnHapus = document.createElement('button');
+            btnHapus.className = 'btn-hapus-kategori';
+            btnHapus.title = 'Hapus kategori';
+            btnHapus.textContent = '🗑️';
+            btnHapus.onclick = () => hapusKategori(kat.id);
+
+            header.appendChild(judul);
+            header.appendChild(btnHapus);
+
+            const textarea = document.createElement('textarea');
+            textarea.id = kat.id;
+            textarea.value = '';
+            textarea.addEventListener('keyup', () => kirimUpdate(kat.id));
+
+            kartu.appendChild(header);
+            kartu.appendChild(textarea);
+            document.getElementById('containerKategori').appendChild(kartu);
+        }
+
+        function tambahOpsiDropdown(kat) {
+            const opsi = document.createElement('option');
+            opsi.value = kat.id;
+            opsi.textContent = kat.ikon + ' ' + kat.nama;
+            document.getElementById('filterKategori').appendChild(opsi);
+        }
+
+        // ===== Hapus kategori =====
+        function hapusKategori(id) {
+            if (!confirm('Yakin ingin menghapus kategori ini beserta isinya?')) return;
+            socket.emit('hapus_kategori', { id });
+        }
+
+        socket.on('kategori_dihapus', function(data) {
+            dataKategori = dataKategori.filter(k => k.id !== data.id);
+            delete dataKonten[data.id];
+            const kartu = document.getElementById('card-' + data.id);
+            if (kartu) kartu.remove();
+            const opsi = document.querySelector('#filterKategori option[value="' + data.id + '"]');
+            if (opsi) opsi.remove();
+            if (pencarianAktif()) jalankanPencarian();
+        });
+
+        // ===== Pencarian & filter (kategori + inisial huruf + teks bebas) =====
+        const inputSearch = document.getElementById('searchInput');
+        const selectKategori = document.getElementById('filterKategori');
+        let hurufAktif = '';
+
+        inputSearch.addEventListener('input', jalankanPencarian);
+        selectKategori.addEventListener('change', jalankanPencarian);
+
+        document.querySelectorAll('.az-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.az-btn').forEach(b => b.classList.remove('aktif'));
+                btn.classList.add('aktif');
+                hurufAktif = btn.dataset.huruf;
+                jalankanPencarian();
+            });
+        });
+
+        document.getElementById('btnTutupHasil').addEventListener('click', resetPencarian);
+
+        function resetPencarian() {
+            inputSearch.value = '';
+            selectKategori.value = 'semua';
+            hurufAktif = '';
+            document.querySelectorAll('.az-btn').forEach(b => b.classList.remove('aktif'));
+            document.querySelector('.az-btn[data-huruf=""]').classList.add('aktif');
+            tampilkanGridNormal();
+        }
+
+        function pencarianAktif() {
+            return inputSearch.value.trim() !== '' || selectKategori.value !== 'semua' || hurufAktif !== '';
+        }
+
+        function tampilkanGridNormal() {
+            document.getElementById('hasilPencarian').style.display = 'none';
+            document.getElementById('containerKategori').style.display = 'grid';
+        }
+
+        function jalankanPencarian() {
+            if (!pencarianAktif()) {
+                tampilkanGridNormal();
+                return;
+            }
+
+            const q = inputSearch.value.trim().toLowerCase();
+            const katFilter = selectKategori.value;
+            const hasil = [];
+
+            dataKategori.forEach(kat => {
+                if (katFilter !== 'semua' && kat.id !== katFilter) return;
+                const baris = (dataKonten[kat.id] || '').split('\n');
+                baris.forEach(b => {
+                    const teks = b.trim();
+                    if (!teks) return;
+                    if (hurufAktif && teks[0].toUpperCase() !== hurufAktif) return;
+                    if (q && !teks.toLowerCase().includes(q)) return;
+                    hasil.push({ kategori: kat, teks });
+                });
+            });
+
+            tampilkanHasil(hasil);
+        }
+
+        function tampilkanHasil(hasil) {
+            document.getElementById('containerKategori').style.display = 'none';
+            document.getElementById('hasilPencarian').style.display = 'block';
+            document.getElementById('jumlahHasil').textContent = hasil.length + ' hasil ditemukan';
+
+            const daftar = document.getElementById('daftarHasil');
+            if (hasil.length === 0) {
+                daftar.innerHTML = '<div class="hasil-kosong">Tidak ada catatan yang cocok 🤷</div>';
+                return;
+            }
+
+            daftar.innerHTML = hasil.map(h => `
+                <div class="hasil-item" onclick="lompatKeKategori('${h.kategori.id}')">
+                    <span class="hasil-badge">${escapeHtml(h.kategori.ikon + ' ' + h.kategori.nama)}</span>
+                    <span class="hasil-teks">${escapeHtml(h.teks)}</span>
+                </div>
+            `).join('');
+        }
+
+        function lompatKeKategori(id) {
+            resetPencarian();
+            const kartu = document.getElementById('card-' + id);
+            if (!kartu) return;
+            kartu.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            kartu.classList.add('highlight');
+            setTimeout(() => kartu.classList.remove('highlight'), 1500);
+        }
+    </script>
+</body>
+</html>
